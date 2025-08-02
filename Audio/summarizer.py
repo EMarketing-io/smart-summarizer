@@ -1,8 +1,10 @@
 import openai
-from Audio.utils import extract_json_block
+from audio.utils import extract_json_block
 
 
+# 🧠 Generates a structured summary from meeting transcript using OpenAI GPT
 def generate_summary(transcript_text):
+    # 📜 System prompt that instructs GPT to act as a business analyst and return a JSON object
     system_prompt = """
 You are an expert business analyst. You will be given a raw transcript from a client-agency meeting.
 
@@ -31,14 +33,14 @@ Schema:
   }
 }
 """
-
+    # 🤖 Call GPT to summarize the provided transcript text using the system prompt
     chat_response = openai.ChatCompletion.create(
         model="gpt-4.1-2025-04-14",
         messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": transcript_text},
+            {"role": "system", "content": system_prompt},   # System-level instructions
+            {"role": "user", "content": transcript_text},   # Actual input transcript
         ],
-        temperature=0.3,
+        temperature=0.3,     # Low temperature = more consistent and factual output
     )
 
     return extract_json_block(chat_response.choices[0].message.content)

@@ -4,11 +4,14 @@ import os
 import re
 from dotenv import load_dotenv
 
+# 🔐 Load environment variables
 load_dotenv()
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
 
+# 📊 Summarizes website content into a detailed, structured JSON using OpenAI GPT
 def summarize_with_openai(webpage_text):
+    # 🧠 Prompt instructing GPT to behave like a business analyst and return only a well-structured JSON
     prompt = f"""
 You are a professional business analyst. Analyze the following website content and extract comprehensive, detailed business information in JSON format.
 
@@ -58,6 +61,7 @@ Analyze this content:
 \"\"\"{webpage_text}\"\"\"
 """
 
+    # 🤖 Send prompt to GPT model
     try:
         response = openai.ChatCompletion.create(
             model="gpt-4.1-2025-04-14",
@@ -65,15 +69,18 @@ Analyze this content:
                 {"role": "system", "content": "You are a helpful assistant."},
                 {"role": "user", "content": prompt},
             ],
-            temperature=0.3,
+            temperature=0.3,  # Low temperature = more predictable structure
         )
 
+        # 📥 Extract and clean the raw response text
         raw_text = response["choices"][0]["message"]["content"].strip()
-
         raw_text = raw_text.strip("`").strip()
+
+        # Remove leading "json" prefix if present
         if raw_text.lower().startswith("json"):
             raw_text = raw_text[4:].strip()
 
+        # ✨ Replace smart quotes and other typographic symbols for clean JSON
         raw_text = (
             raw_text.replace("“", '"')
             .replace("”", '"')
@@ -83,14 +90,19 @@ Analyze this content:
             .replace("—", "-")
         )
 
+        # 🔍 Extract JSON block using regex
         match = re.search(r"{.*}", raw_text, re.DOTALL)
         json_text = match.group(0) if match else raw_text
 
+        # ✅ Parse and return JSON data
         return json.loads(json_text)
 
+    # ❌ Handle cases where GPT response is malformed or parsing fails
     except Exception as e:
         print("⚠️ OpenAI JSON parsing failed:", e)
         print("⚠️ Raw output was:\n", raw_text)
+
+        # Provide a fallback summary structure
         return {
             "title": "Summary Unavailable",
             "sections": [
