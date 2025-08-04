@@ -1,92 +1,69 @@
 # 📦 Standard Libraries
 import os
-import pickle
 import io
 import tempfile
+import requests
 
 # 🌐 Google API Libraries
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload, MediaIoBaseUpload
-from google.auth.transport.requests import Request
-from google_auth_oauthlib.flow import InstalledAppFlow
+from google.oauth2 import service_account
 
 # 🔐 Environment variable loader
 from dotenv import load_dotenv
 
-# Load all variables from the .env file
 load_dotenv()
 
-# 🔧 Configuration from environment
-CREDENTIALS_PATH = os.getenv("GOOGLE_CREDENTIALS_PATH")  # Path to client_secrets.json
-TOKEN_PATH = os.getenv("GOOGLE_TOKEN_PATH")              # Path to save/restore user token
+# 🔧 Config from .env
+SERVICE_ACCOUNT_FILE = os.getenv("GOOGLE_SERVICE_ACCOUNT_FILE")
+AUDIO_DRIVE_FOLDER_ID = os.getenv(
+    "AUDIO_DRIVE_FOLDER_ID"
+)  # Replace with your actual .env key
+SCOPES = ["https://www.googleapis.com/auth/drive.file"]
 
 
-# 🔐 Authenticate with OAuth2 and return a Google Drive API client
-def authenticate_with_oauth():
-    SCOPES = ["https://www.googleapis.com/auth/drive.file"]
-    creds = None
-
-    # ✅ Try to load cached credentials
-    if os.path.exists(TOKEN_PATH):
-        with open(TOKEN_PATH, "rb") as token:
-            creds = pickle.load(token)
-
-    # 🔄 Refresh expired token or start new OAuth flow
-    if not creds or not creds.valid:
-        if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-        
-        # Start browser login flow 
-        else:
-            flow = InstalledAppFlow.from_client_secrets_file(CREDENTIALS_PATH, SCOPES)
-            creds = flow.run_local_server(port=0)
-
-         # 💾 Save the refreshed/new token to disk
-        with open(TOKEN_PATH, "wb") as token:
-            pickle.dump(creds, token)
-
-    # ✅ Return authenticated Google Drive client
-    return build("drive", "v3", credentials=creds)
+# 🔐 Authenticate using service account
+def get_drive_service():
+    credentials = service_account.Credentials.from_service_account_file(
+        SERVICE_ACCOUNT_FILE, scopes=SCOPES
+    )
+    return build("drive", "v3", credentials=credentials)
 
 
-# 🔁 Build Google Drive service — using API key or OAuth2 flow
-def get_drive_service(api_key=None):
-    if api_key:
-        print("🔐 Using API Key authentication")
-        return build("drive", "v3", developerKey=api_key)
-    
-    else:
-        print("🔐 Using OAuth authentication")
-        return authenticate_with_oauth()
+# ⬇️ Download an audio file from Google Drive to a temp file
+def download_audio_from_drive(file_id):
+    print("🌐 Downloading shared file using public link fallback...")
 
+    url = f"https://drive.google.com/uc?export=download&id={file_id}"
+    response = requests.get(url, stream=True)
 
-# ⬇️ Download an audio file from Google Drive and store it temporarily
-def download_audio_from_drive(file_id, api_key=None):
-    service = get_drive_service(api_key)
-    request = service.files().get_media(fileId=file_id)
-    
-    # Create a temp .mp3 file for the download
-    temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3")
+    if response.status_code != 200:
+        raise Exception(
+            f"❌ Failed to download file: {response.status_code} - {response.text}"
+        )
 
-    # Stream the file from Drive
-    downloader = MediaIoBaseDownload(temp_file, request)
-    done = False
-    while not done:
-        status, done = downloader.next_chunk()
-        print(f"Downloading audio: {int(status.progress() * 100)}%")
+    temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".m4a")
+    for chunk in response.iter_content(chunk_size=8192):
+        if chunk:
+            temp_file.write(chunk)
 
     temp_file.close()
+    print(f"✅ Downloaded file to: {temp_file.name}")
     return temp_file.name
 
 
-# 📤 Upload a DOCX file (in memory) to a target Google Drive folder
-def upload_file_to_drive_in_memory(file_data, folder_id, api_key=None, final_name="Zoom Call Notes.docx"):
-    service = get_drive_service(api_key)
-    
-    # 📝 Metadata for the new Drive file
-    file_metadata = {"name": final_name, "parents": [folder_id]}
+# 📤 Uploads a DOCX file (in memory) to a Shared Drive
+def upload_file_to_drive_in_memory(
+    file_data, folder_id=AUDIO_DRIVE_FOLDER_ID, final_name="Meeting Notes.docx"
+):
+    service = get_drive_service()
 
-    # Convert byte content into an uploadable stream
+    file_metadata = {
+        "name": final_name,
+        "parents": [folder_id],
+        "mimeType": "application/vnd.google-apps.document",
+    }
+
     file_stream = io.BytesIO(file_data)
     media = MediaIoBaseUpload(
         file_stream,
@@ -94,10 +71,14 @@ def upload_file_to_drive_in_memory(file_data, folder_id, api_key=None, final_nam
         resumable=True,
     )
 
-    # 🚀 Upload the file to Drive
     file = (
         service.files()
-        .create(body=file_metadata, media_body=media, fields="id")
+        .create(
+            body=file_metadata,
+            media_body=media,
+            fields="id",
+            supportsAllDrives=True,  # ✅ Needed for Shared Drive upload
+        )
         .execute()
     )
 

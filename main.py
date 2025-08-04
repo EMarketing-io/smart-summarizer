@@ -1,6 +1,7 @@
 # 📦 Standard Libraries
 import os
 import re
+from dotenv import load_dotenv
 
 # 🌐 Website Processing Modules
 from website.extract import extract_text_from_url
@@ -9,16 +10,21 @@ from website.document import create_docx_in_memory as create_website_doc
 from website.drive import upload_docx_to_gdrive
 
 # 🎧 Audio Processing Modules
-from audio.transcription import transcribe_audio, split_audio  
+from audio.transcription import transcribe_audio, split_audio
 from audio.summarizer import generate_summary
 from audio.doc_generator import generate_docx as create_audio_doc
 from audio.drive_utils import upload_file_to_drive_in_memory, download_audio_from_drive
-from audio.config import GDRIVE_API_KEY
+
+# 🔐 Load environment variables from .env
+load_dotenv()
+AUDIO_DRIVE_FOLDER_ID = os.getenv(
+    "AUDIO_DRIVE_FOLDER_ID"
+)  # Shared Drive folder for audio docs
 
 
 # 🏷 Format website name from a URL (extracts core domain)
 def format_website_name(url):
-    domain = re.sub(r"https?://(www\.)?", "", url).split("/")[0]
+    domain = re.sub(r"https?://(www\\.)?", "", url).split("/")[0]
     parts = domain.split(".")
     ignore = {"com", "in", "net", "org", "www"}
     main_parts = [part for part in parts if part.lower() not in ignore]
@@ -31,20 +37,18 @@ def extract_drive_file_id(link):
     return match.group(1) if match else None
 
 
-# 🌐 End-to-end processing of website content:
-# Extracts, summarizes, converts to DOCX, and uploads to Google Drive
+# 🌐 End-to-end processing of website content
 def process_website(url, custom_name=None):
     print(f"\n🌐 Processing website: {url}")
-    raw_text = extract_text_from_url(url)  # Scrape text
-    summary = summarize_with_openai(raw_text)  # Summarize via GPT
+    raw_text = extract_text_from_url(url)
+    summary = summarize_with_openai(raw_text)
     name = custom_name or format_website_name(url)
     doc_stream = create_website_doc(summary, f"{name} Website Summary")
-    upload_docx_to_gdrive(doc_stream, f"{name} Website Summary.docx")  # Upload
+    upload_docx_to_gdrive(doc_stream, f"{name} Website Summary.docx")
     print("✅ Website summary uploaded to Google Drive.")
 
 
-# 🔊 End-to-end processing of audio:
-# Download, transcribe, summarize, export, and upload
+# 🔊 End-to-end processing of audio content
 def process_audio(drive_link, company_name, meeting_date):
     print(f"\n🔊 Processing audio for: {company_name} on {meeting_date}")
     file_id = extract_drive_file_id(drive_link)
@@ -53,16 +57,13 @@ def process_audio(drive_link, company_name, meeting_date):
         return
 
     print("📥 Downloading audio...")
-    audio_path = download_audio_from_drive(file_id, api_key=GDRIVE_API_KEY) 
+    audio_path = download_audio_from_drive(file_id)
 
-    print("🎧 Splitting audio into chunks (≤25MB)...")
+    print("🎧 Splitting audio into chunks (15 mins each)...")
     chunks = split_audio(audio_path)
 
     print("📝 Transcribing each chunk...")
-    transcripts = []
-    for chunk in chunks:
-        transcripts.append(transcribe_audio(chunk))
-    
+    transcripts = [transcribe_audio(chunk) for chunk in chunks]
     full_transcript = "\n".join(transcripts)
 
     print("🧠 Summarizing transcript...")
@@ -73,7 +74,7 @@ def process_audio(drive_link, company_name, meeting_date):
 
     final_name = f"{company_name} Meeting Notes.docx"
     upload_file_to_drive_in_memory(
-        docx_file, folder_id="1ngGsk7hSe-yOTUz17kfQLtTwXaWbSCMt", final_name=final_name
+        docx_file, folder_id=AUDIO_DRIVE_FOLDER_ID, final_name=final_name
     )
 
     os.remove(audio_path)
@@ -83,7 +84,7 @@ def process_audio(drive_link, company_name, meeting_date):
     print("✅ Audio summary uploaded to Google Drive.")
 
 
-# 🖥️ CLI entrypoint: accepts manual input from the user for processing
+# 🖥️ CLI entrypoint
 def main():
     print("📦 Smart Summariser")
 
@@ -96,16 +97,13 @@ def main():
     audio_name = input("🏢 Enter company name: ").strip()
     meeting_date = input("📅 Enter meeting date (dd-mm-yyyy): ").strip()
 
-    # ❌ Abort if no input provided
     if not website_url and not audio_link:
         print("⚠️ Nothing to process. Please provide at least one input.")
         return
 
-    # ✅ Process website if given
     if website_url:
         process_website(website_url, website_name)
 
-    # ✅ Process audio if given and required info is present
     if audio_link:
         if not audio_name or not meeting_date:
             print("⚠️ Audio processing skipped. Company name and date are required.")

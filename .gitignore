@@ -11,6 +11,7 @@ __pycache__/
 .env
 token.pickle
 google_oauth_credentials.json
+google_service_account.json
 
 # === Temporary files ===
 *.tmp
