@@ -54,3 +54,5 @@ def upload_docx_to_gdrive(docx_stream, filename):
     )
 
     print(f"Uploaded to Google Drive as: {uploaded['name']} (ID: {uploaded['id']})")
+    return uploaded["id"]
+
